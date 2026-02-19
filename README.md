@@ -1,2 +1,2 @@
-# Programing-laungage-concepts
-CSCI 318 Programing laungage concepts group 5 
+# Programming-Language-Concepts
+CSCI 318 Programming Language Concepts group 5 
