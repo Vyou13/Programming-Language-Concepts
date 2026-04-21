@@ -12,10 +12,12 @@ const firebaseConfig = {
 //initialize firebase 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-//for reporting purposes 
+
+//for report thing
 //the things i'll do for a wendy's cheeseburger
 let tempCoords = null;
 let reportMarker = null;
+let currentSearchMarker = null;
 
 //leaflet
 //set limitationsn 
@@ -37,7 +39,27 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 }).addTo(map);
-
+//selection pin color change for report
+const greenIcon = L.divIcon({
+  className: "custom-pin",
+  html: `<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+           <path d="M15 0C6.71573 0 0 6.71573 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.71573 23.2843 0 15 0Z" fill="#8CC084"/>
+           <circle cx="15" cy="15" r="6" fill="#C1D7AE"/>
+         </svg>`,
+  iconSize: [30, 42],
+  iconAnchor: [14.5, 11]
+});
+//pin color change for search bar
+const whiteIcon = L.divIcon({
+  className: "custom-pin-white",
+  html: `<svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M15 0C6.71573 0 0 6.71573 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.71573 23.2843 0 15 0Z" fill="#FFFFFF"/>
+            <circle cx="15" cy="15" r="6" fill="#C1D7AE"/>
+          </svg>`,
+  iconSize: [30, 42],
+  iconAnchor: [15, 42], // Tip of the pin
+  popupAnchor: [0, -42] // Popup appears above the pin
+});
 //side menu
 const sideMenu = document.getElementById('sideMenu');
 const toggle = document.getElementById('toggle');
@@ -58,6 +80,10 @@ sideMenu.addEventListener('mousedown', (e) =>{
 
 //code for the close button and info button
 toggle.addEventListener('click',(e) =>{
+    if (currentSearchMarker){
+        map.removeLayer(currentSearchMarker);
+        currentSearchMarker = null; //reset the variable
+        }
     const cStatus = chatbot.classList.contains('active');
     const fStatus = filters.classList.contains('active');
     const rStatus = report.classList.contains('active');
@@ -81,7 +107,52 @@ toggle.addEventListener('click',(e) =>{
         }, 
         300); 
 });
+const geocoder = L.Control.Geocoder.nominatim({
+    geocodingQueryParams: {
+        viewbox: bounds.toBBoxString(), 
+        bounded: 1 
+    }
+});
+const searchControl = L.Control.geocoder({
+    geocoder: geocoder,
+    defaultMarkGeocode: false,
+    placeholder: "Search for a location...",
+    collapsed: false,
+    suggest: true
+}).addTo(map);
 
+//mve into sidebar
+const searchBarContainer = searchControl.getContainer();
+document.getElementById("geocoderInput").appendChild(searchBarContainer);
+
+//prevent map interference
+L.DomEvent.disableClickPropagation(searchBarContainer);
+
+searchControl.on('markgeocode', function(e){
+    const latlng = e.geocode.center;
+
+   if (bounds.contains(latlng)){
+    //remove the old marker if it exists 
+        if (currentSearchMarker) {
+            map.removeLayer(currentSearchMarker);
+        }
+
+        map.setView(latlng, 16);
+
+        //create new marker 
+        currentSearchMarker = L.marker(latlng, { icon: whiteIcon })
+            .addTo(map)
+            .bindPopup(e.geocode.name)
+            .openPopup();
+    }
+});
+//keep it from bubbles
+const input = searchBarContainer.querySelector('input');
+
+if (input){
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('mousedown', (e) => e.stopPropagation());
+}
 const checkAcc = document.getElementById('checkAcc');
 const newAcc = document.getElementById('newAcc');
 const cal = document.getElementById('Calendar');
@@ -103,6 +174,47 @@ flatpickr("#dateRange", {
     dateFormat: "Y-m-d"
 });
 
+const submitReport = document.getElementById('submitReport');
+const reportPage = document.getElementById('reportPage');
+
+// List the IDs of the required inputs
+const requiredFields = [
+  'reportTitle', 
+  'reportItems', 
+  'category', 
+];
+const boxAcc = document.getElementById('checkAcc');
+
+function checkForm() {
+  let filled = true;
+
+  requiredFields.forEach(id => {
+    const field = document.getElementById(id);
+    //trim checks there's actually text that's valid
+    if (!field.value || field.value.trim() === ""){
+      filled = false;
+    }
+    if (boxAcc.checked){
+    //checking if drop down has a value
+    const boxAcc = document.getElementById('accDuration');
+    if (!boxAcc.value) filled = false;
+    } else{
+    //what about calendar?
+    const dateRange = document.getElementById('dateRange');
+    if (!dateRange.value || dateRange.value.trim() === ""){
+      filled = false;
+    }
+
+    if (!reportMarker)
+    filled = false;
+  }
+  });
+
+  //if form is filled button is active
+  submitReport.disabled = !filled;
+}
+reportPage.addEventListener('input', checkForm);
+reportPage.addEventListener('change', checkForm);
 
 const submitUserDeal = (e) => {
     if (e) e.stopPropagation();
@@ -169,6 +281,8 @@ const openOption = (active, hide, hide2) => {
     active.classList.add('active');
     hide.classList.add('hidden');
     hide2.classList.add('hidden');
+
+     searchContainer.classList.add('hidden');
 }
 //lets you go back
 const goBack = (e) => {
@@ -177,6 +291,7 @@ const goBack = (e) => {
     chatbot.classList.remove('active', 'hidden');
     filters.classList.remove('active', 'hidden');
     report.classList.remove('active', 'hidden');
+     searchContainer.classList.remove('hidden');
 }
 
 //when you click either it hides it  
@@ -197,23 +312,55 @@ report.addEventListener('click', function() {
     }
 });
 
-map.on('click', function(e){
-    if(report.classList.contains('active')){
+map.on('click', function(e) {
+    if (report.classList.contains('active')) {
         tempCoords = e.latlng;
-        if (!reportMarker){
-            reportMarker = L.marker(tempCoords, {draggable:true}).addTo(map);
-            reportMarker.bindPopup("Location Set! Drag me or click elsewhere to move.").openPopup();
-            reportMarker.on('dragend', function(event){
+
+        if (!reportMarker) {
+            //make marker if it doesn't exist already 
+           reportMarker = L.marker(tempCoords, {draggable: true,icon: greenIcon}).addTo(map);
+            reportMarker.bindPopup("Location Set!").openPopup();
+            //let user drag 
+            reportMarker.on('dragend', function(event) {
                 tempCoords = event.target.getLatLng();
                 reportMarker.bindPopup("Location Updated!").openPopup();
+                checkForm(); 
             });
-        }
-        else{
+
+            //set up the right click thing 
+            reportMarker.on('contextmenu', function(event) {
+                //prevent the browser's default right-click menu
+                L.DomEvent.stopPropagation(event);
+
+                //create the delete button 
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerText = "Remove Pin";
+                deleteBtn.style.cssText = "color: white; cursor: pointer; border: 1px solid #C1D7AE; background-color: #b14b3e; border-padding: 25px; padding: 5px; border-radius: 4px; font-weight: bold;";
+
+                //when the button inside the popup is clicked
+                deleteBtn.onclick = function() {
+                    map.removeLayer(reportMarker);
+                    reportMarker = null;
+                    checkForm(); //disable the submit button now that pin is gone
+                };
+
+                //show the button in a popup at the marker
+                reportMarker.bindPopup(deleteBtn).openPopup();
+            });
+        } else{
             reportMarker.setLatLng(tempCoords);
-            reportMarker.openPopup();
+            reportMarker.bindPopup("Location Moved!").openPopup();
         }
+
+        if (currentSearchMarker) {
+        map.removeLayer(currentSearchMarker);
+        currentSearchMarker = null; //teset the variable
+        }
+        //check form after map interaction
+        checkForm(); 
     }
 });
+
 
 //create the three basic groups - more might be added idk
 var foodLayer = L.layerGroup(); //food
